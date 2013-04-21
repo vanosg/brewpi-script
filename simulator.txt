@@ -1,0 +1,27 @@
+If the arduino is running the simulator, the script automatically switches over to simulator mode.
+
+- On startup, the initialJson config value is read and sent to the arduino on startup. This is typically used to set the
+- Existing JSON files are overwritten. Thiis is intentional to allow multiple restarts in case the params are wrong.
+-
+
+- The profile spreadsheet can also contain simulator parameters
+- The simulator uses the set after X days rather than the absolute time. Restarts of the script do not append to new files.
+
+
+const char SimulatorBeerTemp[] PROGMEM = "b";
+const char SimulatorBeerConnected[] PROGMEM = "bc";
+const char SimulatorBeerVolume[] PROGMEM = "bv";
+const char SimulatorCoolPower[] PROGMEM = "c";
+const char SimulatorDoorState[] PROGMEM = "d";
+const char SimulatorFridgeTemp[] PROGMEM = "f";
+const char SimulatorFridgeConnected[] PROGMEM = "fc";
+const char SimulatorFridgeVolume[] PROGMEM = "fv";
+const char SimulatorHeatPower[] PROGMEM = "h";
+const char SimulatorPrintInterval[] PROGMEM = "i";
+const char SimulatorNoise[] PROGMEM = "n";
+const char SimulatorCoeffBeer[] PROGMEM = "kb";
+const char SimulatorCoeffRoom[] PROGMEM = "ke";
+const char SimulatorRoomTempMin[] PROGMEM = "rmi";
+const char SimulatorRoomTempMax[] PROGMEM = "rmx";
+const char SimulatorBeerDensity[] PROGMEM = "sg";
+const char SimulatorTime[] PROGMEM = "t";

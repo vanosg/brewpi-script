@@ -2,34 +2,42 @@ from datetime import datetime
 import time
 import os
 
-jsonCols = ("\"cols\":[{\"type\":\"datetime\",\"id\":\"Time\",\"label\":\"Time\"}," +
+jsonCols = ("\"cols\":["+
+        "{\"type\":\"datetime\",\"id\":\"Time\",\"label\":\"Time\"}," +
         "{\"type\":\"number\",\"id\":\"BeerTemp\",\"label\":\"Beer temperature\"}," +
         "{\"type\":\"number\",\"id\":\"BeerSet\",\"label\":\"Beer setting\"}," +
         "{\"type\":\"string\",\"id\":\"BeerAnn\",\"label\":\"Beer Annotate\"}," +
         "{\"type\":\"number\",\"id\":\"FridgeTemp\",\"label\":\"Fridge temperature\"}," +
         "{\"type\":\"number\",\"id\":\"FridgeSet\",\"label\":\"Fridge setting\"}," +
-        "{\"type\":\"string\",\"id\":\"FridgeAnn\",\"label\":\"Fridge Annotate\"}]")
+        "{\"type\":\"string\",\"id\":\"FridgeAnn\",\"label\":\"Fridge Annotate\"},"+
+        "{\"type\":\"number\",\"id\":\"RoomTemp\",\"label\":\"Room temp.\"},"+
+        "{\"type\":\"number\",\"id\":\"State\",\"label\":\"State\"}"+
+        "]")
 
 
 def addRow(jsonFileName, row):
     jsonFile = open(jsonFileName, "r+")
     jsonFile.seek(-3, 2)  # Go insert point to add the last row    
     ch = jsonFile.read(1)
-    jsonFile.seek(0, os.SEEK_CUR);
+    jsonFile.seek(0, os.SEEK_CUR)
     # when alternating between reads and writes, the file contents should be flushed, see
     # http://bugs.python.org/issue3207. This prevents IOError, Errno 0    
     if ch != '[':
         # not the first item
         jsonFile.write(',')
     newRow = {}
-    newRow['Time'] = datetime.today()
+
+    #if (newRow.get("Time") is None):
+     #   newRow['Time'] = datetime.today()
 
     # insert something like this into the file:
     # {"c":[{"v":"Date(2012,8,26,0,1,0)"},{"v":18.96},{"v":19.0},null,{"v":19.94},{"v":19.6},null]},
+    jsonFile.write(os.linesep)
     jsonFile.write("{\"c\":[")
-    now = datetime.now()
+    now = datetime.fromtimestamp(row['Time'])
     jsonFile.write("{{\"v\":\"Date({y},{M},{d},{h},{m},{s})\"}},".format(
             y=now.year, M=(now.month - 1), d=now.day, h=now.hour, m=now.minute, s=now.second))
+
     if row['BeerTemp'] is None:
         jsonFile.write("null,")
     else:
@@ -56,9 +64,19 @@ def addRow(jsonFileName, row):
         jsonFile.write("{\"v\":" + str(row['FridgeSet']) + "},")
 
     if row['FridgeAnn'] is None:
+        jsonFile.write("null,")
+    else:
+        jsonFile.write("{\"v\":\"" + str(row['FridgeAnn']) + "\"},")
+
+    if row['RoomTemp'] is None:
+        jsonFile.write("null,")
+    else:
+        jsonFile.write("{\"v\":\"" + str(row['RoomTemp']) + "\"},")
+
+    if row['State'] is None:
         jsonFile.write("null")
     else:
-        jsonFile.write("{\"v\":\"" + str(row['FridgeAnn']) + "\"}")
+        jsonFile.write("{\"v\":\"" + str(row['State']) + "\"}")
 
     # rewrite end of json file
     jsonFile.write("]}]}")

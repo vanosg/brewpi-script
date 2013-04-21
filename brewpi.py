@@ -13,7 +13,6 @@
 
 # You should have received a copy of the GNU General Public License
 # along with BrewPi.  If not, see <http://www.gnu.org/licenses/>.
-
 from pprint import pprint
 import serial
 import time
@@ -28,9 +27,14 @@ import simplejson as json
 from configobj import ConfigObj
 
 #local imports
+import thread
 import temperatureProfile
 import programArduino as programmer
 import brewpiJson
+import Queue
+
+# use simulator in arduino
+# from simulator import Simulator
 
 # Settings will be read from Arduino, initialize with same defaults as Arduino
 # This is mainly to show what's expected. Will all be overwritten on the first update from the arduino
@@ -92,12 +96,26 @@ configFile = sys.argv[1]
 
 # global variables, will be initialized by startBeer()
 config = ConfigObj(configFile)
+
+def configValue(key, defValue):
+	return config.get(key, defValue)
+
+isSimulator = config.get("simulator", False)
+
 localJsonFileName = ""
 localCsvFileName = ""
 wwwJsonFileName = ""
 wwwCsvFileName = ""
 lastDay = ""
 day = ""
+
+scriptStart = time.time()
+secondsSinceStart = 0
+
+# default is 2 days
+exitAfter = float(configValue("runFor", 2))*60*60*24
+
+# simulator = Simulator()
 
 # wwwSettings.json is a copy of some of the settings for the web server
 def changeWwwSetting(settingName, value):
@@ -109,6 +127,31 @@ def changeWwwSetting(settingName, value):
 	wwwSettingsFile.truncate()
 	wwwSettingsFile.close()
 
+conn = None
+
+def updateProfileTemp():
+	return temperatureProfile.getNewTemp(config['scriptPath'], secondsSinceStart)
+
+
+def fetchProfile():
+	global conn
+	# use urllib to download the profile as a CSV file
+	profileUrl = ("https://spreadsheets.google.com/tq?key=" +
+		config['profileKey'] +
+		"&tq=select D,E&tqx=out:csv")  # select the right cells and CSV format
+	profileFileName = config['scriptPath'] + 'settings/tempProfile.csv'
+	if os.path.isfile(profileFileName + '.old'):
+		os.remove(profileFileName + '.old')
+	if os.path.isfile(profileFileName):
+		os.rename(profileFileName, profileFileName + '.old')
+	urllib.urlretrieve(profileUrl, profileFileName)
+	if not conn is None:
+		if os.path.isfile(profileFileName):
+			conn.send("Profile successfuly updated")
+		else:
+			conn.send("Failed to update profile")
+	temperatureProfile.flushProfile()
+	updateProfileTemp()
 
 def startBeer(beerName):
 	global config
@@ -137,7 +180,7 @@ def startBeer(beerName):
 	# define a JSON file to store the data table
 	jsonFileName = config['beerName'] + '-' + day
 	#if a file for today already existed, add suffix
-	if os.path.isfile(dataPath + jsonFileName + '.json'):
+	if not isSimulator and os.path.isfile(dataPath + jsonFileName + '.json'):
 		i = 1
 		while(os.path.isfile(
 				dataPath + jsonFileName + '-' + str(i) + '.json')):
@@ -154,11 +197,15 @@ def startBeer(beerName):
 	wwwCsvFileName = (wwwDataPath + config['beerName'] + '.csv')
 	changeWwwSetting('beerName', beerName)
 
+	fetchProfile()
+
 
 def logMessage(message):
 	print >> sys.stderr, time.strftime("%b %d %Y %H:%M:%S   ") + message
 
 
+
+ser = None
 # open serial port
 try:
 	ser = serial.Serial(config['port'], 57600, timeout=1)
@@ -175,28 +222,47 @@ retries = 0
 while(1):  # read all lines on serial interface
 	line = ser.readline()
 	if(line):  # line available?
-		if(line[0] == 'N'):
-			brewpiVersion = line[2:].strip('\n');
-			if(brewpiVersion == compatibleBrewpiVersion):
+		if line[0] == 'N':
+			parts = line[2:].strip('\n').split(':')
+			brewpiVersion = parts[0]
+			# todo - fetch simulator flag from version line
+			if brewpiVersion == compatibleBrewpiVersion:
 				print "Found BrewPi version " + brewpiVersion
 			else:
 				logMessage("Warning: BrewPi version compatible with this script is " + 
 					compatibleBrewpiVersion + 
 					" but version number received is " + brewpiVersion)
+
+			if len(parts)>1:
+				isSimulator = parts[1]="simulate"
+			if isSimulator:
+				logMessage("Running simulator.")
 			break
 	else:
 		ser.write('n')
-		time.sleep(1);
-		retries = retries + 1
-		if(retries > 5):
+		time.sleep(1)
+		retries += 1
+		if retries > 5:
 			print ("Warning: Cannot receive version number from Arduino. " + 
 				"Script might not be compatible.")
-			break;
+			break
 
 ser.flush()
+
+# send initial config to the arduino. The changes will be read back here. This is mainly used for
+# setting up the mode.
+if isSimulator:
+	initialJson = configValue("initialJson", None)
+	if initialJson:
+		ser.write("j"+initialJson)
+
 # request settings from Arduino, processed later when reply is received
 ser.write('s') # request control settings cs
-ser.write('c') # request control constans cc
+ser.write('c') # request control constants cc
+
+simulatorConfig = configValue("simulatorStart", "i:30,r:-1")
+ser.write('u'+simulatorConfig) # update every 30 secs  run at full speed
+
 # answer from Arduino is received asynchronously later.
 
 #create a listening socket to communicate with PHP
@@ -216,16 +282,88 @@ else:
 	# set all permissions for socket
 	os.chmod(config['scriptPath'] + 'BEERSOCKET', 0777)
 s.setblocking(1)  # set socket functions to be blocking
-s.listen(5)  # Create a backlog queue for up to 5 connections
+s.listen(50)  # Create a backlog queue for up to 5 connections
 # blocking socket functions wait 'serialCheckInterval' seconds
-s.settimeout(float(config['serialCheckInterval']))
+s.settimeout(float(config.get('socketTimeout', 0.01)))
 
-prevDataTime = 0.0  # keep track of time between new data requests
+# prevDataTime = 0.0  # keep track of time between new data requests
+prevDataTime = time.time()
 prevTimeOut = time.time()
 
 run = 1
 
 startBeer(config['beerName'])
+
+prevSimulatorStep = time.time()
+prevProfileTime = 0
+
+# simulator.step()        # take a first step
+
+webConnectionQueue = Queue.Queue()
+controllerRequestQueue = Queue.Queue()
+outputTemperature = False
+
+
+# I had contemplated putting this in the profile, but it's really part of the equipment.
+def fetchSimulatorConfigJSON():
+	sim = {}
+	configNames = [""]
+
+def handleWebConnections():
+	while (run):
+		try:
+			conn, addr = s.accept()
+			# blocking receive, times out in serialCheckInterval
+			webConnectionQueue.put(conn)
+		except socket.timeout:
+			pass
+	s.close()
+
+def handleControllerRequests():
+	while (run):
+		line = ser.readline()
+		if (line):
+			controllerRequestQueue.put(line)
+
+def fetch(queue):
+	try:
+		return queue.get_nowait()
+	except Queue.Empty:
+		return None
+
+prevTempJson = {
+	"BeerTemp":0,
+    "FridgeTemp":0,
+    "BeerAnn":None,
+    "FridgeAnn":None,
+    "RoomTemp":None,
+    "State":None,
+    "BeerSet":0,
+    "FridgeSet":0
+}
+
+
+def renameTempKey(key):
+	rename = {
+		"bt" : "BeerTemp",
+	    "bs" : "BeerSet",
+	    "ba":"BeerAnn",
+	    "ft":"FridgeTemp",
+	    "fs":"FridgeSet",
+	    "fa":"FridgeAnn",
+	    "rt":"RoomTemp",
+	    "s":"State",
+	    "t":"Time"
+	}
+	return rename.get(key, key)
+
+def tempFormat(t):
+	return "{0:.2f}".format(t)
+
+
+webConnectionThread = thread.start_new_thread(handleWebConnections, ())
+controllerRequestThread = thread.start_new_thread(handleControllerRequests, ())
+
 
 while(run):
 	# Check wheter it is a new day
@@ -239,14 +377,27 @@ while(run):
 		# create new empty json file
 		brewpiJson.newEmptyFile(localJsonFileName)
 
+
+
 	# Wait for incoming socket connections.
 	# When nothing is received, socket.timeout will be raised after
 	# serialCheckInterval seconds. Serial receive will be done then.
 	# When messages are expected on serial, the timeout is raised 'manually'
+	expectedResponse = False
 	try:
-		conn, addr = s.accept()
-		# blocking receive, times out in serialCheckInterval
+		'''
+		t = time.time()
+		simulator.step()
+		simulatorTime = int(simulator.time)
+		msg = "u{s:="+str(simulatorTime)+",b:"+tempFormat(simulator.outputBeerTemp())+",f:"+tempFormat(simulator.outputFridgeTemp())+"}\n"
+		print msg
+		ser.write(msg)
+		#expectedResponse = True
+		#prevSimulatorStep += 1.0
+		'''
+		conn = webConnectionQueue.get_nowait()
 		message = conn.recv(1024)
+		conn.close()
 		if "=" in message:
 			messageType, value = message.split("=", 1)
 		else:
@@ -310,7 +461,7 @@ while(run):
 		elif messageType == "setProfile":  # cs['mode'] set to profile
 			# read temperatures from currentprofile.csv
 			cs['mode'] = 'p'
-			cs['beerSet'] = temperatureProfile.getNewTemp(config['scriptPath'])
+			cs['beerSet'] = updateProfileTemp()
 			ser.write("j{mode:p, beerSet:" + str(cs['beerSet']) + "}")
 			logMessage("Notification: Profile mode enabled")
 			raise socket.timeout  # go to serial communication to update Arduino
@@ -354,19 +505,7 @@ while(run):
 			config.write()
 			changeWwwSetting('profileKey', value)
 		elif messageType == "uploadProfile":
-			# use urllib to download the profile as a CSV file
-			profileUrl = ("https://spreadsheets.google.com/tq?key=" +
-				config['profileKey'] +
-				"&tq=select D,E&tqx=out:csv")  # select the right cells and CSV format
-			profileFileName = config['scriptPath'] + 'settings/tempProfile.csv'
-			if os.path.isfile(profileFileName + '.old'):
-				os.remove(profileFileName + '.old')
-			os.rename(profileFileName, profileFileName + '.old')
-			urllib.urlretrieve(profileUrl, profileFileName)
-			if os.path.isfile(profileFileName):
-				conn.send("Profile successfuly updated")
-			else:
-				conn.send("Failed to update profile")
+			fetchProfile()
 		elif messageType == "programArduino":
 			ser.close  # close serial port before programming
 			del ser  # Arduino won't reset when serial port is not completely removed
@@ -390,51 +529,69 @@ while(run):
 		else:
 			logMessage("Error: Received invalid message on socket: " + message)
 
-		if (time.time() - prevTimeOut) < config['serialCheckInterval']:
+		if (False and (time.time() - prevTimeOut) < config['serialCheckInterval']):
 			continue
 		else:
 			# raise exception to check serial for data immediately
 			raise socket.timeout
 
-	except socket.timeout:
+	except (socket.timeout, Queue.Empty):
 		# Do serial communication and update settings every SerialCheckInterval
-		prevTimeOut = time.time()
 
-		# request new LCD text
-		ser.write('l')
-		# request Settings from Arduino to stay up to date
-		ser.write('s')
-		
+		t = time.time()
+		periodicUpdate = ((t-prevTimeOut)>5.0)
+		if periodicUpdate:
+			# request new LCD text
+			ser.write('l')
+
+			# request Settings from Arduino to stay up to date
+			ser.write('s')
+			outputTemperature = True
+			prevTimeOut = t
+
 		# if no new data has been received for serialRequestInteval seconds
-		if((time.time() - prevDataTime) >= float(config['interval'])):
-			ser.write("t")  # request new from arduino
+		# if((time.time() - prevDataTime) >= float(config['interval'])):
+		#	ser.write("t")  # request new from arduino
 
-		elif((time.time() - prevDataTime) > float(config['interval']) +
+		if((t - prevDataTime) > float(config['interval']) +
 										2 * float(config['interval'])):
 			#something is wrong: arduino is not responding to data requests
 			logMessage("Error: Arduino is not responding to new data requests")
 
-		while(1):  # read all lines on serial interface
-			line = ser.readline()
+		lineRead = False
+		while(not lineRead):  # read all lines on serial interface
+			line = fetch(controllerRequestQueue)
 			if(line):  # line available?
 				try:
+					lineRead = True
 					if(line[0] == 'T'):
-						# process temperature line
-						newRow = json.loads(line[2:])
-
 						# print it to stdout
-						print time.strftime("%b %d %Y %H:%M:%S  ") + line[2:]
+						if outputTemperature:
+							print time.strftime("%b %d %Y %H:%M:%S  ") + line[2:]
+
+						# process temperature line
+						newData = json.loads(line[2:])
+
+						# copy/rename keys
+						for key in newData:
+							prevTempJson[renameTempKey(key)] = newData[key]
+
+						newRow = prevTempJson
+
 						# write complete datatable to json file
+
+						seconds = int(newRow['Time'])
+						secondsSinceStart = seconds
+						run = (secondsSinceStart<exitAfter)
+
+						newRow['Time'] = scriptStart+seconds
 
 						brewpiJson.addRow(localJsonFileName, newRow)
 
-						# copy to www dir.
-						# Do not write directly to www dir to prevent blocking www file.
-						shutil.copyfile(localJsonFileName, wwwJsonFileName)
-
 						#write csv file too
 						csvFile = open(localCsvFileName, "a")
-						lineToWrite = (time.strftime("%b %d %Y %H:%M:%S;") +
+
+						lineToWrite = (time.strftime("%b %d %Y %H:%M:%S;", time.localtime(scriptStart+seconds)) +
 							str(newRow['BeerTemp']) + ';' +
 							str(newRow['BeerSet']) + ';' +
 							str(newRow['BeerAnn']) + ';' +
@@ -442,12 +599,23 @@ while(run):
 							str(newRow['FridgeSet']) + ';' +
 							str(newRow['FridgeAnn']) + ';' +
 							str(newRow['State']) + '\n')
+
 						csvFile.write(lineToWrite)
 						csvFile.close()
-						shutil.copyfile(localCsvFileName, wwwCsvFileName)
+
+						# my this is inefficient
+						if outputTemperature:
+							shutil.copyfile(localCsvFileName, wwwCsvFileName)
+							# copy to www dir.
+							# Do not write directly to www dir to prevent blocking www file.
+							shutil.copyfile(localJsonFileName, wwwJsonFileName)
+
+						state = int(newRow['State'])
+						#simulator.setMode(state)
 
 						# store time of last new data for interval check
 						prevDataTime = time.time()
+						outputTemperature = False
 					elif(line[0] == 'D'):
 						# debug message received
 						logMessage("Arduino debug message: " + line[2:])
@@ -478,22 +646,22 @@ while(run):
 				except json.decoder.JSONDecodeError, e:
 					logMessage("JSON decode error: %s" % e)
 			else:
-				# no lines left to process
-				break
+				if (lineRead):
+					break
 
 		# Check for update from temperature profile
-		if(cs['mode'] == 'p'):
-			newTemp = temperatureProfile.getNewTemp(config['scriptPath'])
-			if(newTemp > cc['tempSetMin'] and newTemp < cc['tempSetMax']):
-				if(newTemp != cs['beerSet']):
+		if cs['mode'] == 'p' and (secondsSinceStart-prevProfileTime)>10:
+			prevProfileTime = secondsSinceStart
+			newTemp = int(updateProfileTemp()*100)/float(100.0)    # round to 2 places
+			if newTemp > cc['tempSetMin'] and newTemp < cc['tempSetMax']:
+				if newTemp != cs['beerSet']:
 					# if temperature has to be updated send settings to arduino
-					cs['beerSet'] = temperatureProfile.getNewTemp(config['scriptPath'])
+					cs['beerSet'] = newTemp
 					ser.write("j{beerSet:" + str(cs['beerSet']) + "}")
 
 	except socket.error, e:
 		logMessage("socket error: %s" % e)
 
+run = 0
 
 ser.close()  # close port
-conn.shutdown(socket.SHUT_RDWR)  # close socket
-conn.close()

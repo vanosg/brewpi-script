@@ -17,12 +17,88 @@
 import time
 import csv
 
+# read in profile and re-compute all offsets as seconds since start
+# maintain current segment - start, end time and temp. If current time is end advance to next.
 
-def getNewTemp(scriptPath):
+# the start time stored in the profile
+profileStartTime = None
+startTime = 0
+endTime = 0
+startTemp = 0
+endTEmp = 0
+tempReader = None
+reachedEnd = False
+tempRatio = 0
+
+
+def flushProfile():
+	global tempReader
+	tempReader = None
+
+
+def loadProfile(scriptPath):
+	tr = csv.reader(
+		open(scriptPath + 'settings/tempProfile.csv', 'rb'), delimiter=',', quoting=csv.QUOTE_ALL)
+	tr.next()  # discard the first row, which is the table header
+	global tempReader, startTime, endTime, startTemp, endTemp, reachedEnd
+	#tempReader = [ item for item in tr ]
+	tempReader = tr
+
+	startTime = 0
+	endTime = 0
+	startTemp = 0
+	endTemp = 0
+	reachedEnd = False
+	# fetch the initial setting for the period
+	readNextProfileStep()
+	startTemp = endTemp
+	startTime = endTime
+
+
+def readNextProfileStep():
+	global tempReader, startTime, endTime, startTemp, endTemp, reachedEnd, tempRatio, profileStartTime
+
+	try:
+		row = tempReader.next()
+		datestring = row[0]
+		if datestring!="null":
+			temperature = float(row[1])
+			startTime = endTime
+			startTemp = endTemp
+			asTime = time.mktime(time.strptime(datestring, "%d/%m/%Y %H:%M:%S"))
+			if (profileStartTime is None):
+				profileStartTime = asTime
+
+			endTemp = temperature
+			endTime = asTime-profileStartTime
+
+			if (endTime!=startTime):
+				tempRatio = (endTemp - startTemp) / (endTime - startTime)
+		else:
+			reachedEnd = True
+	except:
+		reachedEnd = True
+
+
+def getNewTemp(scriptPath, secondsSinceStart):
+	global tempReader, startTime, endTime, startTemp, endTemp, reachedEnd, tempRatio, profileStartTime
+	if tempReader is None:
+		loadProfile(scriptPath)
+	while (secondsSinceStart>=endTime and not reachedEnd):
+		readNextProfileStep()
+	if (reachedEnd):
+		return endTemp
+
+	interpolatedTemp = ((secondsSinceStart - startTime) * tempRatio) + startTemp
+	return interpolatedTemp
+
+
+def getNewTempOriginal(scriptPath):
 	temperatureReader = csv.reader(
-		open(scriptPath + 'settings/tempProfile.csv', 'rb'),
+		open2(scriptPath + 'settings/tempProfile.csv', 'rb'),
 									delimiter=',', quoting=csv.QUOTE_ALL)
 	temperatureReader.next()  # discard the first row, which is the table header
+
 	prevTemp = -1
 	nextTemp = -1
 	prevDate = -1
