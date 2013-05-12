@@ -260,8 +260,8 @@ if isSimulator:
 ser.write('s') # request control settings cs
 ser.write('c') # request control constants cc
 
-simulatorConfig = configValue("simulatorStart", "i:30,r:-1")
-ser.write('u'+simulatorConfig) # update every 30 secs  run at full speed
+simulatorConfig = configValue("simulatorStart", "{i:30,r:-1}")
+ser.write('y'+simulatorConfig) # update every 30 secs  run at full speed
 
 # answer from Arduino is received asynchronously later.
 
