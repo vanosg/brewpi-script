@@ -579,7 +579,7 @@ while(run):
 			if line:  # line available?
 				try:
 					if line[0] == 'T':
-					lineRead = True
+						lineRead = True
 					if(line[0] == 'T'):
 						# print it to stdout
 						if outputTemperature:
