@@ -31,7 +31,7 @@ if [ "$1" = "install" ]; then
          echo "Cron entry already exists, skipping..."
     else
         ### Look at cron entry to find location of log files
-        logPath=$(grep brewpi.py /etc/cron.d/brewpi|sed -r 's/.*(1>.*)$/\1/')|sed -r 's/>/>>/' >/dev/null
+        logPath=$(grep brewpi.py /etc/cron.d/brewpi|sed -r 's/.*(1>.*)$/\1/'|sed -r 's/>/>>/')>/dev/null
         echo "Adding cron job for Wifi checking to /etc/cron.d/brewpi"
         echo "*/10 * * * * $DIR/wifiChecker.sh $logPath" >> /etc/cron.d/brewpi
     fi
