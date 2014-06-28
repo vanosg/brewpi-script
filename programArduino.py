@@ -1,4 +1,3 @@
-import os.path
 # Copyright 2012 BrewPi/Elco Jacobs.
 # This file is part of BrewPi.
 
@@ -63,11 +62,30 @@ def openSerial(port, altport, baud, timeoutVal):
 def programArduino(config, boardType, hexFile, restoreWhat):
     printStdErr("****    Arduino Program script started    ****")
 
+    ### Test if default path actually has tools to prevent errors down the road
+    sdkPath = False
+    avrToolsPath = False
+    avrConfigPath = False
+    if os.path.isdir("/usr/share/arduino"):
+        sdkPath = True
+    if os.path.isdir(arduino+'hardware/tools/'):
+        avrToolsPath = True
+    if os.path.isdie(avrdudehome+'avrdude.conf'):
+        avrConfigpath = True
+
     arduinohome = config.get('arduinoHome', '/usr/share/arduino/')  # location of Arduino sdk
+    if (arduinohome is 'usr/share/arduino' and not sdkPath):
+        print "Unable to find the Arduino SDK. Please set arduinoHome in your config file and try again"
+        sys.exit()
     avrdudehome = config.get('avrdudeHome', arduinohome + 'hardware/tools/')  # location of avr tools
+    if (avrdudehome is arduinohome+'hardware/tools/' and not avrToolsPath):
+        print "Unable to find the avr tools. Please set avrdudehome in your config file and try again"
+        sys.exit()
     avrsizehome = config.get('avrsizeHome', '')  # default to empty string because avrsize is on path
     avrconf = config.get('avrConf', avrdudehome + 'avrdude.conf')  # location of global avr conf
-
+    if (avrconf is avrdudehome+'avrdude.conf' and not avrConfigPath):
+        print "Unable to find the avr config file. Please set avrConf in your config file and try again"
+        sys.exit()
     boardsFile = loadBoardsFile(arduinohome)
     boardSettings = fetchBoardSettings(boardsFile, boardType)
 
