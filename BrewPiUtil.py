@@ -18,6 +18,7 @@ import time
 import sys
 import os
 import serial
+import validate
 
 try:
 	import configobj
@@ -48,13 +49,13 @@ def readCfgWithDefaults(cfg):
 	Returns:
 	ConfigObj of settings
 	"""
+    val = validate.validator()
 	defaultCfg = scriptPath() + '/settings/defaults.cfg'
-	config = configobj.ConfigObj(defaultCfg)
 
 	if cfg:
 		try:
-			userConfig = configobj.ConfigObj(cfg)
-			config.merge(userConfig)
+			config = configobj.ConfigObj(cfg, configspec=defaultCfg)
+            config.validate(val)
 		except configobj.ParseError:
 			logMessage("ERROR: Could not parse user config file %s" % cfg)
 		except IOError:
