@@ -562,7 +562,7 @@ while run:
                 logMessage("Notification: Interval changed to " +
                            str(newInterval) + " seconds")
         elif messageType == "startNewBrew":  # new beer name
-            newName = value
+            newName = value.replace("/","_") # name is used as part of file path, *nix can't handle /s in filenames
             result = startNewBrew(newName)
             conn.send(json.dumps(result))
         elif messageType == "pauseLogging":
