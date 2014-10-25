@@ -321,7 +321,10 @@ def resumeLogging():
     else:
         return {'status': 1, 'statusMessage': "Logging was not paused."}
 
-port = config['port']
+try:
+    port = config['port']
+except KeyError:
+    port = util.findArduino()
 ser, conn = util.setupSerial(config)
 
 logMessage("Notification: Script started for beer '" + urllib.unquote(config['beerName']) + "'")

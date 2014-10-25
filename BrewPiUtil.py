@@ -18,6 +18,7 @@ import time
 import sys
 import os
 import serial
+import glob
 
 try:
 	import configobj
@@ -25,7 +26,19 @@ except ImportError:
 	print "BrewPi requires ConfigObj to run, please install it with 'sudo apt-get install python-configobj"
 	sys.exit(1)
 
-
+def findArduino():
+    """ 
+    Discovers arduino tty path
+    TO DO: This will need to be updated when we deal with multiple arduinos
+    Params: None
+    Returns: string
+    """
+    arduino = "/dev/ttyACM0"
+    for file in glob.glob("/dev/serial/by-id/*Arduino*"):
+        arduino = os.path.realpath(file)
+    return arduino
+        
+        
 def addSlash(path):
 	"""
 	Adds a slash to the path, but only when it does not already have a slash at the end
@@ -100,19 +113,17 @@ def removeDontRunFile(path='/var/www/do_not_run_brewpi'):
 def setupSerial(config):
     ser = None
     conn = None
-    port = config['port']
+    try:
+        port = config['port']
+    except KeyError:
+        port = findArduino()
     dumpSerial = config.get('dumpSerial', False)
     # open serial port
     try:
         ser = serial.Serial(port, 57600, timeout=0.1)  # use non blocking serial.
     except serial.SerialException as e:
-        logMessage("Error opening serial port: %s. Trying alternative serial port %s." % (str(e), config['altport']))
-        try:
-            port = config['altport']
-            ser = serial.Serial(port, 57600, timeout=0.1)  # use non blocking serial.
-        except serial.SerialException as e:
-            logMessage("Error opening alternative serial port: %s. Script will exit." % str(e))
-            exit(1)
+        logMessage("Error opening serial port: %s. Please add port=/path/to/arduino in config.cfg . Script will exit." % str(e))
+        exit(1)
 
     # yes this is monkey patching, but I don't see how to replace the methods on a dynamically instantiated type any other way
     if dumpSerial:

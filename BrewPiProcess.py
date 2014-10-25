@@ -125,8 +125,10 @@ class BrewPiProcesses():
         if cfg:
             cfg = cfg[0]  # add full path to config file
         bp.cfg = util.readCfgWithDefaults(cfg)
-
-        bp.port = bp.cfg['port']
+        try:
+            bp.port = bp.cfg['port']
+        except KeyError:
+            bp.port = util.findArduino()
         bp.sock = BrewPiSocket.BrewPiSocket(bp.cfg)
         return bp
 
