@@ -17,6 +17,7 @@
 import time
 import sys
 import os
+import glob
 
 try:
 	import configobj
@@ -24,7 +25,19 @@ except ImportError:
 	print "BrewPi requires ConfigObj to run, please install it with 'sudo apt-get install python-configobj"
 	sys.exit(1)
 
-
+def findArduino():
+    """ 
+    Discovers arduino tty path
+    TO DO: This will need to be updated when we deal with multiple arduinos
+    Params: None
+    Returns: string
+    """
+    arduino = "/dev/ttyACM0"
+    for file in glob.glob("/dev/serial/by-id/*Arduino*"):
+        arduino = os.path.realpath(file)
+    return arduino
+        
+        
 def addSlash(path):
 	"""
 	Adds a slash to the path, but only when it does not already have a slash at the end

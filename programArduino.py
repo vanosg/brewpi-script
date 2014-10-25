@@ -45,20 +45,13 @@ def loadBoardsFile(arduinohome):
     return open(arduinohome + 'hardware/arduino/boards.txt', 'rb').readlines()
 
 
-def openSerial(port, altport, baud, timeoutVal):
+def openSerial(port, baud, timeoutVal):
     # open serial port
     try:
         ser = serial.Serial(port, baud, timeout=timeoutVal)
         return [ser, port]
     except serial.SerialException as e:
-        printStdErr("Error opening serial port: %s. Trying alternative serial port %s." % (str(e), altport))
-        try:
-            ser = serial.Serial(altport, baud, timeout=timeoutVal)
-            return [ser, altport]
-        except serial.SerialException as e:
-            printStdErr("Error opening alternative serial port: %s. Script will exit." % str(e))
-            return [None, None]
-
+        printStdErr("Error opening serial port: %s. Please set port in config.cfg and try again." % (str(e)))
 
 def programArduino(config, boardType, hexFile, restoreWhat):
     printStdErr("****    Arduino Program script started    ****")
@@ -87,7 +80,8 @@ def programArduino(config, boardType, hexFile, restoreWhat):
     printStdErr("Devices will " + ("" if restoreDevices else "not ") + "be restored" +
                 (" if possible" if restoreSettings else ""))
 
-    ser, port = openSerial(config['port'], config['altport'], 57600, 0.2)
+    port = findArduino()
+    ser, port = openSerial(port, 57600, 0.2)
     if ser is None:
         printStdErr("Could not open serial port. Programming aborted.")
         return 0
@@ -197,7 +191,7 @@ def programArduino(config, boardType, hexFile, restoreWhat):
     # open and close serial port at 1200 baud. This resets the Arduino Leonardo
     # the Arduino Uno resets every time the serial port is opened automatically
     if boardType == 'leonardo':
-        ser, port = openSerial(config['port'], config['altport'], 1200, 0.2)
+        ser, port = openSerial(port, 1200, 0.2)
         if ser is None:
             printStdErr("Could not open serial port at 1200 baud to reset Arduino Leonardo")
             return 0
@@ -220,7 +214,7 @@ def programArduino(config, boardType, hexFile, restoreWhat):
         countDown -= 1
         printStdErr("Back up in " + str(countDown) + "...")
 
-    ser, port = openSerial(config['port'], config['altport'], 57600, 0.2)
+    ser, port = openSerial(port, 57600, 0.2)
     if ser is None:
         printStdErr("Error opening serial port after programming. Program script will exit. Settings are not restored.")
         return 0
