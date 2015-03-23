@@ -10,4 +10,4 @@ myPath="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 sudo bash "$myPath"/installDependencies.sh
 sudo bash "$myPath"/updateCron.sh
-sudo bash "$myPath"/fixPermissions.sh
+sudo bash "$myPath"/fixPermissions.sh $1

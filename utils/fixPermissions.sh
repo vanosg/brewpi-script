@@ -22,7 +22,11 @@ die () {
 unset CDPATH
 myPath="$( cd "$( dirname "${BASH_SOURCE[0]}")" && pwd )"
 scriptPath="$(dirname "$myPath")"
-webPath="/var/www"
+if [ $1 ]; then
+    webPath=$1
+else
+    webPath="/var/www"
+fi
 
 echo -e "\n***** Fixing file permissions for $webPath *****"
 sudo chown -R www-data:www-data "$webPath"||warn
